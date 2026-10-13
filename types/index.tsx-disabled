@@ -1,0 +1,424 @@
+export type ScreenSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+
+export interface App {
+  id: string;
+  command: string;
+  port: string;
+  status: 'idle' | 'running' | 'stopped';
+  logs: string[];
+  currentScreenSize: ScreenSize;
+  createdAt: number;
+}
+
+export interface AppState {
+  apps: App[];
+  addApp: (command: string, port: string) => App | null;
+  removeApp: (id: string) => void;
+  updateAppStatus: (id: string, status: App['status']) => void;
+  updateAppLogs: (id: string, logs: string[]) => void;
+  updateAppSize: (id: string, size: ScreenSize) => void;
+}
+
+export interface ScreenConfig {
+  width: number;
+  height: number;
+  label: string;
+}
+
+export const SCREEN_CONFIGS: Record<ScreenSize, ScreenConfig> = {
+  sm: { width: 375, height: 812, label: 'iPhone 14 Pro' },
+  md: { width: 768, height: 1024, label: 'iPad Pro' },
+  lg: { width: 1024, height: 768, label: 'MacBook Air' },
+  xl: { width: 1920, height: 1080, label: 'Desktop 1080p' },
+  '2xl': { width: 2560, height: 1440, label: '4K Monitor' },
+};
+
+export const generateId = () => Math.random().toString(36).substring(2, 9);
+
+// FILE: app/page.tsx
+
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { create } from 'zustand';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Play, 
+  Square, 
+  X, 
+  Monitor, 
+  Terminal, 
+  Cpu, 
+  Server, 
+  ChevronDown, 
+  ChevronUp,
+  Trash2,
+  Terminal as TerminalIcon
+} from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+// --- UTILS ---
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// --- STORE ---
+const useAppStore = create<AppState>((set, get) => ({
+  apps: [],
+  addApp: (command: string, port: string) => {
+    const id = generateId();
+    const newApp: App = {
+      id,
+      command,
+      port,
+      status: 'running',
+      logs: ['Initializing process...', `Connecting to port ${port}...`],
+      currentScreenSize: 'md',
+      createdAt: Date.now(),
+    };
+    set((state) => ({ apps: [...state.apps, newApp] }));
+    return newApp;
+  },
+  removeApp: (id: string) => set((state) => ({ apps: state.apps.filter((a) => a.id !== id) })),
+  updateAppStatus: (id: string, status: App['status']) => set((state) => ({
+    apps: state.apps.map((a) => (a.id === id ? { ...a, status } : a))
+  })),
+  updateAppLogs: (id: string, logs: string[]) => set((state) => ({
+    apps: state.apps.map((a) => (a.id === id ? { ...a, logs } : a))
+  })),
+  updateAppSize: (id: string, size: ScreenSize) => set((state) => ({
+    apps: state.apps.map((a) => (a.id === id ? { ...a, currentScreenSize: size } : a))
+  })),
+}));
+
+// --- TYPES ---
+type ScreenSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+const SCREEN_CONFIGS: Record<ScreenSize, { width: number; height: number; label: string }> = {
+  sm: { width: 375, height: 812, label: 'iPhone 14 Pro' },
+  md: { width: 768, height: 1024, label: 'iPad Pro' },
+  lg: { width: 1024, height: 768, label: 'MacBook Air' },
+  xl: { width: 1920, height: 1080, label: 'Desktop 1080p' },
+  '2xl': { width: 2560, height: 1440, label: '4K Monitor' },
+};
+
+// --- COMPONENTS ---
+
+const Button = ({ children, onClick, variant = 'primary', className, disabled }: any) => {
+  const baseStyle = "px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 active:scale-95";
+  const variants = {
+    primary: "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50",
+    secondary: "bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700",
+    danger: "bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20",
+    ghost: "text-slate-400 hover:text-white hover:bg-white/5"
+  };
+  
+  return (
+    <button 
+      onClick={onClick} 
+      disabled={disabled}
+      className={cn(baseStyle, variants[variant as keyof typeof variants], className, disabled && 'opacity-50 cursor-not-allowed')}
+    >
+      {children}
+    </button>
+  );
+};
+
+const Input = ({ label, value, onChange, placeholder, type = "text", icon }: any) => (
+  <div className="flex flex-col gap-1.5 w-full">
+    <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">{label}</label>
+    <div className="relative group">
+      {icon && <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors">{icon}</div>}
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={cn(
+          "w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all",
+          icon && "pl-10"
+        )}
+      />
+    </div>
+  </div>
+);
+
+// --- MAIN APP ---
+
+export default function App() {
+  const { apps, addApp, removeApp, updateAppStatus, updateAppLogs, updateAppSize } = useAppStore();
+  const [commandInput, setCommandInput] = useState('');
+  const [portInput, setPortInput] = useState('');
+  const [activeAppId, setActiveAppId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Simulate execution logic
+  useEffect(() => {
+    const interval = setInterval(() => {
+      apps.forEach(app => {
+        if (app.status === 'running') {
+          const newLog = Math.random() > 0.7 ? `> ${app.command} [PID: ${Math.floor(Math.random() * 9999)}]` : `> ${app.command} running...`;
+          updateAppLogs(app.id, [...app.logs.slice(-10), newLog]);
+        }
+      });
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [apps, updateAppLogs]);
+
+  const handleStartApp = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commandInput || !portInput) return;
+    
+    const result = addApp(commandInput, portInput);
+    if (result) {
+      setActiveAppId(result.id);
+      setCommandInput('');
+      setPortInput('');
+    }
+  };
+
+  const handleStopApp = (id: string) => {
+    updateAppStatus(id, 'stopped');
+    setTimeout(() => {
+      updateAppStatus(id, 'idle');
+    }, 2000);
+  };
+
+  const handleResizeApp = (id: string, size: ScreenSize) => {
+    updateAppSize(id, size);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30">
+      {/* Header */}
+      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Monitor className="w-5 h-5 text-white" />
+            </div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+              Screen Vision
+            </h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              System Ready
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-[1600px] mx-auto p-4 md:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-4rem)]">
+        
+        {/* Left Sidebar: Controls */}
+        <div className={cn(
+          "lg:col-span-3 flex flex-col gap-6 transition-all duration-300 ease-in-out",
+          isSidebarOpen ? "opacity-100 translate-x-0" : "opacity-50 translate-x-4 pointer-events-none"
+        )}>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <TerminalIcon className="w-4 h-4" />
+              New Application
+            </h2>
+            <form onSubmit={handleStartApp} className="space-y-4">
+              <Input 
+                label="Command" 
+                value={commandInput} 
+                onChange={setCommandInput} 
+                placeholder="e.g. npm start" 
+                icon={<TerminalIcon className="w-4 h-4" />}
+              />
+              <Input 
+                label="Port" 
+                value={portInput} 
+                onChange={setPortInput} 
+                placeholder="e.g. 3000" 
+                type="number"
+                icon={<Server className="w-4 h-4" />}
+              />
+              <Button type="submit" className="w-full mt-2" disabled={!commandInput || !portInput}>
+                <Play className="w-4 h-4 fill-current" />
+                Launch Application
+              </Button>
+            </form>
+          </div>
+
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm flex-1 overflow-hidden flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Cpu className="w-4 h-4" />
+              Running Instances
+            </h2>
+            <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+              {apps.length === 0 && (
+                <div className="text-center py-8 text-slate-600 text-sm">
+                  No applications running.
+                </div>
+              )}
+              {apps.map(app => (
+                <div key={app.id} className="group bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 hover:border-indigo-500/30 transition-colors">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                      <span className="text-sm font-mono text-slate-300 truncate max-w-[120px]">{app.command}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleStopApp(app.id)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-xs text-slate-500 font-mono">Port: {app.port}</span>
+                    <span className="text-xs text-slate-500">{new Date(app.createdAt).toLocaleTimeString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Area: Visualization */}
+        <div className="lg:col-span-9 flex flex-col gap-6 h-full">
+          <AnimatePresence mode="wait">
+            {apps.length === 0 ? (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="flex-1 flex flex-col items-center justify-center bg-slate-950/50 border border-slate-800/50 rounded-3xl border-dashed border"
+              >
+                <div className="w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center mb-6 shadow-xl shadow-black/50">
+                  <Monitor className="w-10 h-10 text-slate-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-slate-300 mb-2">No Applications Active</h3>
+                <p className="text-slate-500 max-w-md text-center">
+                  Configure a command and port in the sidebar to visualize how your application scales across different devices.
+                </p>
+              </motion.div>
+            ) : (
+              <motion.div 
+                key={activeAppId}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="flex-1 bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden flex flex-col shadow-2xl shadow-black"
+              >
+                {/* Toolbar */}
+                <div className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex gap-1.5">
+                      <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                      <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                      <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono ml-2 truncate max-w-[200px]">
+                      {activeAppId ? apps.find(a => a.id === activeAppId)?.command : '...'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" className="!p-1.5" onClick={() => setActiveAppId(null)}>
+                      <X className="w-4 h-4 text-slate-400" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Main Content */}
+                <div className="flex-1 relative bg-slate-950 overflow-hidden flex">
+                  <AnimatePresence>
+                    {apps.find(a => a.id === activeAppId) && (
+                      <div className="absolute inset-0 flex items-center justify-center p-4 md:p-8">
+                        <motion.div
+                          layoutId="active-app"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                          className="relative"
+                        >
+                          {/* Screen Container */}
+                          <div 
+                            className="bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col relative z-10"
+                            style={{
+                              width: SCREEN_CONFIGS[activeAppId.currentScreenSize].width,
+                              height: SCREEN_CONFIGS[activeAppId.currentScreenSize].height,
+                              aspectRatio: `${SCREEN_CONFIGS[activeAppId.currentScreenSize].width}/${SCREEN_CONFIGS[activeAppId.currentScreenSize].height}`,
+                            }}
+                          >
+                            {/* App Header (Mock) */}
+                            <div className="h-12 bg-slate-100 border-b border-slate-200 flex items-center px-4 gap-2">
+                              <div className="w-3 h-3 rounded-full bg-red-400"></div>
+                              <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+                              <div className="w-3 h-3 rounded-full bg-green-400"></div>
+                              <div className="ml-auto text-xs text-slate-400 font-mono">localhost:{activeAppId.currentScreenSize === 'sm' ? '375' : activeAppId.currentScreenSize === 'md' ? '768' : activeAppId.currentScreenSize === 'lg' ? '1024' : activeAppId.currentScreenSize === 'xl' ? '1920' : '2560'}</div>
+                            </div>
+                            
+                            {/* App Body (Mock) */}
+                            <div className="flex-1 bg-slate-50 p-6 grid grid-cols-12 gap-6">
+                              {/* Sidebar Mock */}
+                              <div className="col-span-3 bg-white rounded-lg shadow-sm border border-slate-200 h-full flex flex-col p-3">
+                                <div className="space-y-2 mt-2">
+                                  {[1,2,3,4].map(i => (
+                                    <div key={i} className="h-2 bg-slate-100 rounded w-full"></div>
+                                  ))}
+                                </div>
+                              </div>
+                              
+                              {/* Main Content Mock */}
+                              <div className="col-span-9 space-y-6">
+                                <div className="h-32 bg-white rounded-lg shadow-sm border border-slate-200 flex items-center justify-center">
+                                  <div className="text-slate-300 font-bold text-xl">Dashboard Content</div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-4">
+                                  {[1,2,3].map(i => (
+                                    <div key={i} className="h-24 bg-white rounded-lg shadow-sm border border-slate-200"></div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Controls Footer */}
+                <div className="h-20 bg-slate-900 border-t border-slate-800 flex items-center justify-between px-6">
+                  <div className="text-xs text-slate-500">
+                    {activeAppId ? 'Application is running' : 'No application selected'}
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400 mr-2">Screen Size:</span>
+                    <div className="relative group">
+                      <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition-all">
+                        <Monitor className="w-3.5 h-3.5" />
+                        <span className="text-sm font-medium">{SCREEN_CONFIGS[activeAppId?.currentScreenSize]?.label || 'Select'}</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+                      <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden hidden group-hover:block z-50">
+                        {Object.entries(SCREEN_CONFIGS).map(([size, config]) => (
+                          <button
+                            key={size}
+                            onClick={() => handleResizeApp(activeAppId!, size as ScreenSize)}
+                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-700 transition-colors flex items-center justify-between group/btn"
+                          >
+                            <span>{config.label}</span>
+                            <span className="text-xs text-slate-500 font-mono">{config.width}x{config.height}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </main>
+    </div>
+  );
+}
